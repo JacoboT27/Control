@@ -25,6 +25,10 @@ class Map(object):
             [10, 15]
         ])
 
+        x = np.arange(-30, 31, 3)   
+        y = np.arange(-20, 31, 3)    
+        XX, YY = np.meshgrid(x, y)
+        self.landmarks = np.vstack([XX.ravel(), YY.ravel()]).T
 
 class RobotEstimator(object):
 
