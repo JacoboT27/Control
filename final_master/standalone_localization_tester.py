@@ -8,6 +8,7 @@ from robot_localization_system import FilterConfiguration, Map, RobotEstimator
 # Simulator configuration; this only contains
 # stuff relevant for the standalone simulator.
 
+def wrap_angle(angle): return np.arctan2(np.sin(angle), np.cos(angle))
 
 class SimulatorConfiguration(object):
     def __init__(self):
@@ -83,6 +84,32 @@ class Simulator(object):
 
         y = np.array(y)
         return y
+    
+    def landmark_range_observations2(self):
+        ranges = []                                                                     # array
+        bearings = []                                                                   # array
+
+        W_r = self._filter_config.W_range                                               # 0.25 -> Measurement noise
+        W_b = self._filter_config.W_bearing                                             # (pi/360)^2 -> Measurement noise
+
+        for lm in self._map.landmarks:                                                  # for every landmark
+            dx = lm[0] - self._x_true[0]                                                # distance in x
+            dy = lm[1] - self._x_true[1]                                                # distance in y
+
+            # ----- Range -----
+            range_true = np.sqrt(dx**2 + dy**2)                                         # true range
+            range_meas = range_true + np.random.normal(0, np.sqrt(W_r))                 # measured range = true range + noise
+            ranges.append(range_meas)                                                   # add to array
+
+            # ----- Bearing -----
+            bearing_true = np.arctan2(dy, dx) - self._x_true[2]                         # global direction - robot heading -> relative bearing of landmark
+            bearing_true = wrap_angle(bearing_true)                                     # wrap angle
+            bearing_meas = bearing_true + np.random.normal(0, np.sqrt(W_b))             # measured angle = true angle + noise
+            bearing_meas = wrap_angle(bearing_meas)                                     # wrap angle
+            bearings.append(bearing_meas)                                               # add to array
+
+        return np.array(ranges), np.array(bearings)                                     # return range and bearing
+
 
     def x_true(self):
         return self._x_true
@@ -138,10 +165,12 @@ for step in range(sim_config.time_steps):
     estimator.predict_to(simulation_time)
 
     # Get the landmark observations.
-    y = simulator.landmark_range_observations()
+    #y = simulator.landmark_range_observations()                                        # use range function
+    y, y_bearing = simulator.landmark_range_observations2()                             # use range-bearing function
 
     # Update the filter with the latest observations.
-    estimator.update_from_landmark_range_observations(y)
+    estimator.update_from_landmark_range_observations(y)                                # updates range
+    estimator.update_from_landmark_bearing_observations(y_bearing)                      # updates bearing
 
     # Get the current state estimate.
     x_est, Sigma_est = estimator.estimate()
@@ -173,13 +202,6 @@ plt.axis('equal')
 plt.grid(True)
 plt.show()
 
-# Note the angle state theta experiences "angles
-# wrapping". This small helper function is used
-# to address the issue.
-
-
-def wrap_angle(angle): return np.arctan2(np.sin(angle), np.cos(angle))
-
 
 # Plot the 2 standard deviation and error history for each state.
 state_name = ['x', 'y', 'θ']
@@ -188,7 +210,7 @@ estimation_error[:, -1] = wrap_angle(estimation_error[:, -1])
 for s in range(3):
     plt.figure()
     two_sigma = 2*np.sqrt(Sigma_est_history[:, s])
-    print(f'Max 2σ_x: {two_sigma.max():.3f}s')
+    print(f'Max 2σ: {two_sigma.max():.3f}s')
     print('All timesteps satisfy requirement?', (two_sigma < 0.10).all())
     plt.plot(estimation_error[:, s])
     plt.plot(two_sigma, linestyle='dashed', color='red')

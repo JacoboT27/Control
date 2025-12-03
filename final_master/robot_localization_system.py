@@ -25,8 +25,8 @@ class Map(object):
             [10, 15]
         ])
 
-        x = np.arange(-30, 31, 3)   
-        y = np.arange(-20, 31, 3)    
+        x = np.arange(-20, 31, 5)   
+        y = np.arange(-20, 31, 5)    
         XX, YY = np.meshgrid(x, y)
         self.landmarks = np.vstack([XX.ravel(), YY.ravel()]).T
 
@@ -152,5 +152,51 @@ class RobotEstimator(object):
         self._do_kf_update(nu, C, W_landmarks)
 
         # Angle wrap afterwards
+        self._x_est[-1] = np.arctan2(np.sin(self._x_est[-1]),
+                                     np.cos(self._x_est[-1]))
+
+    def update_from_landmark_bearing_observations(self, y_bearing):
+
+        self._x_pred = self._x_est.copy()
+        self._Sigma_pred = self._Sigma_est.copy()
+
+        y_pred = []
+        C = []
+        x_pred = self._x_pred
+
+        for lm in self._map.landmarks:
+            dx_pred = lm[0] - x_pred[0]
+            dy_pred = lm[1] - x_pred[1]
+            q = dx_pred**2 + dy_pred**2  # squared range
+
+            # Predicted bearing: atan2(dy, dx) - theta
+            bearing_pred = np.arctan2(dy_pred, dx_pred) - x_pred[2]
+            bearing_pred = np.arctan2(np.sin(bearing_pred), np.cos(bearing_pred))
+            y_pred.append(bearing_pred)
+
+            # Jacobian of bearing wrt [x, y, theta]
+            # [ dy/q, -dx/q, -1 ]
+            C_bearing = np.array([
+                dy_pred / q,
+                -dx_pred / q,
+                -1.0
+            ])
+            C.append(C_bearing)
+
+        C = np.array(C)
+        y_pred = np.array(y_pred)
+
+        # Innovation
+        nu = y_bearing - y_pred
+        # Wrap bearing innovations to [-pi, pi]
+        nu = np.arctan2(np.sin(nu), np.cos(nu))
+
+        # Measurement noise covariance for bearings
+        W_landmarks = self._config.W_bearing * np.eye(len(self._map.landmarks))
+
+        # EKF update
+        self._do_kf_update(nu, C, W_landmarks)
+
+        # Wrap heading afterwards
         self._x_est[-1] = np.arctan2(np.sin(self._x_est[-1]),
                                      np.cos(self._x_est[-1]))
